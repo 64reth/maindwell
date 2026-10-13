@@ -5,11 +5,11 @@ export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const pathname = request.nextUrl.pathname;
-  const isDashboard = pathname.startsWith("/dashboard");
+  const isProtected = ["/dashboard", "/employee", "/client"].some((path) => pathname.startsWith(path));
   const isAuthPage = pathname === "/";
 
   if (!url || !key) {
-    if (isDashboard) return NextResponse.redirect(new URL("/", request.url));
+    if (isProtected) return NextResponse.redirect(new URL("/", request.url));
     return NextResponse.next();
   }
 
@@ -26,11 +26,25 @@ export async function middleware(request: NextRequest) {
   });
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user && isDashboard) return NextResponse.redirect(new URL("/", request.url));
-  if (user && isAuthPage) return NextResponse.redirect(new URL("/dashboard", request.url));
+  if (!user && isProtected) return NextResponse.redirect(new URL("/", request.url));
+  if (user) {
+    const { data: memberships } = await supabase.from("org_memberships").select("role").eq("user_id", user.id);
+    const roles = new Set((memberships || []).map((membership) => membership.role as string));
+    if (roles.size === 0) {
+      if (isProtected) return NextResponse.redirect(new URL("/", request.url));
+      return response;
+    }
+    const home = roles.has("employee") ? "/employee" : roles.has("client") ? "/client" : "/dashboard";
+    if (isAuthPage) return NextResponse.redirect(new URL(home, request.url));
+    if (pathname.startsWith("/dashboard") && !["owner", "admin", "operations", "viewer"].some((role) => roles.has(role))) {
+      return NextResponse.redirect(new URL(home, request.url));
+    }
+    if (pathname.startsWith("/employee") && !roles.has("employee")) return NextResponse.redirect(new URL(home, request.url));
+    if (pathname.startsWith("/client") && !roles.has("client")) return NextResponse.redirect(new URL(home, request.url));
+  }
   return response;
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*"],
+  matcher: ["/", "/join", "/dashboard/:path*", "/employee/:path*", "/client/:path*"],
 };

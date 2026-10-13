@@ -55,7 +55,7 @@ export default function AuthScreen() {
         </a>
         <div className="auth-aside-copy">
           <span className="eyebrow">Property operations</span>
-          <h1>Good work,<br />well managed.</h1>
+          <h1>Good work.<br />Well managed.</h1>
           <p>One clear view of every request, property and contractor.</p>
         </div>
         <div className="principles"><span><Check size={15} /> Quality</span><span><Check size={15} /> Transparency</span><span><Check size={15} /> Reliable delivery</span></div>

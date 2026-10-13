@@ -6,6 +6,79 @@ export type ClientRecord = {
   contact_name: string;
   email: string;
   phone: string;
+  auth_user_id?: string | null;
+  created_at: string;
+};
+
+export type EmployeeRecord = {
+  id: string;
+  organization_id: string;
+  auth_user_id: string | null;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  employment_role: string;
+  start_date: string;
+  supervisor_id: string | null;
+  responsibilities: string;
+  employment_status: "invited" | "active" | "inactive";
+  created_at: string;
+};
+
+export type TrainingRecord = {
+  id: string;
+  employee_id: string;
+  record_type: "training" | "qualification";
+  title: string;
+  provider: string | null;
+  status: "planned" | "in_progress" | "completed";
+  completed_on: string | null;
+  expires_on: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type CompetencyAssessment = {
+  id: string;
+  employee_id: string;
+  task_name: string;
+  outcome: "needs_supervision" | "supervised_practice" | "approved_independent";
+  assessment_notes: string;
+  assessed_at: string;
+  review_due: string | null;
+  created_at: string;
+};
+
+export type DevelopmentGoal = {
+  id: string;
+  employee_id: string;
+  title: string;
+  description: string;
+  target_date: string | null;
+  status: "planned" | "in_progress" | "achieved" | "paused";
+  created_at: string;
+};
+
+export type DevelopmentEntry = {
+  id: string;
+  employee_id: string;
+  entry_type: "supervisor_feedback" | "milestone" | "job_experience" | "goal_progress";
+  title: string;
+  note: string;
+  job_id: string | null;
+  goal_id: string | null;
+  created_at: string;
+};
+
+export type JobEmployeeAssignment = {
+  id: string;
+  organization_id: string;
+  job_id: string;
+  employee_id: string;
+  instructions: string;
+  requires_supervision: boolean;
+  assigned_by: string;
   created_at: string;
 };
 
@@ -66,5 +139,5 @@ export type JobHistoryRecord = {
   created_at: string;
 };
 
-export type PageName = "overview" | "jobs" | "clients" | "properties" | "contractors";
+export type PageName = "overview" | "jobs" | "clients" | "properties" | "contractors" | "workforce";
 export type RecordKind = "job" | "client" | "property" | "contractor";

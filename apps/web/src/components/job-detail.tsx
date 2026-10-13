@@ -1,9 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { CalendarDays, Clock3, ExternalLink, MapPin, UserRound, X } from "lucide-react";
+import { CalendarDays, Clock3, ExternalLink, MapPin, Plus, UserRound, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { ClientRecord, ContractorRecord, JobHistoryRecord, JobRecord, PropertyRecord } from "@/lib/types";
+import type { ClientRecord, ContractorRecord, EmployeeRecord, JobEmployeeAssignment, JobHistoryRecord, JobRecord, PropertyRecord } from "@/lib/types";
 
 const statuses = ["new", "assigned", "in_progress", "completed", "cancelled"] as const;
 
@@ -20,13 +20,21 @@ type JobDetailProps = {
   property?: PropertyRecord;
   client?: ClientRecord;
   contractors: ContractorRecord[];
+  employees: EmployeeRecord[];
+  canManage: boolean;
   onClose: () => void;
   onEdit: (job: JobRecord) => void;
   onSave: (jobId: string, changes: Record<string, unknown>) => Promise<void>;
+  onAssignEmployee: (jobId: string, employeeId: string, instructions: string, requiresSupervision: boolean) => Promise<JobEmployeeAssignment>;
+  onRemoveEmployee: (assignmentId: string) => Promise<void>;
 };
 
-export default function JobDetail({ job, property, client, contractors, onClose, onEdit, onSave }: JobDetailProps) {
+export default function JobDetail({ job, property, client, contractors, employees, canManage, onClose, onEdit, onSave, onAssignEmployee, onRemoveEmployee }: JobDetailProps) {
   const [history, setHistory] = useState<JobHistoryRecord[]>([]);
+  const [employeeAssignments, setEmployeeAssignments] = useState<JobEmployeeAssignment[]>([]);
+  const [employeeId, setEmployeeId] = useState("");
+  const [assignmentError, setAssignmentError] = useState("");
+  const [assignmentBusy, setAssignmentBusy] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [status, setStatus] = useState(job.status);
   const [saving, setSaving] = useState(false);
@@ -39,14 +47,53 @@ export default function JobDetail({ job, property, client, contractors, onClose,
 
   useEffect(() => {
     let active = true;
-    createClient().from("job_history").select("*").eq("job_id", job.id).order("created_at", { ascending: false })
-      .then(({ data, error: loadError }) => {
+    const supabase = createClient();
+    Promise.all([
+      supabase.from("job_history").select("*").eq("job_id", job.id).order("created_at", { ascending: false }),
+      supabase.from("job_employee_assignments").select("*").eq("job_id", job.id),
+    ]).then(([historyResult, assignmentResult]) => {
         if (!active) return;
-        if (loadError) setHistoryError("Job history could not be loaded.");
-        else setHistory((data || []) as JobHistoryRecord[]);
+        if (historyResult.error) setHistoryError("Job history could not be loaded.");
+        else setHistory((historyResult.data || []) as JobHistoryRecord[]);
+        if (!assignmentResult.error) setEmployeeAssignments((assignmentResult.data || []) as JobEmployeeAssignment[]);
       });
     return () => { active = false; };
   }, [job.id, statusMessage]);
+
+  async function addEmployee(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAssignmentError("");
+    if (!employeeId) return;
+    setAssignmentBusy(true);
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    try {
+      const assignment = await onAssignEmployee(
+        job.id,
+        employeeId,
+        String(data.get("employee_instructions") || ""),
+        data.get("requires_supervision") === "on",
+      );
+      setEmployeeAssignments((current) => [...current, assignment]);
+      if (job.status === "new") setStatus("assigned");
+      setEmployeeId("");
+      form.reset();
+    } catch (cause) {
+      setAssignmentError(cause instanceof Error ? cause.message : "Unable to assign this employee.");
+    } finally {
+      setAssignmentBusy(false);
+    }
+  }
+
+  async function removeEmployee(assignmentId: string) {
+    setAssignmentError("");
+    try {
+      await onRemoveEmployee(assignmentId);
+      setEmployeeAssignments((current) => current.filter((assignment) => assignment.id !== assignmentId));
+    } catch (cause) {
+      setAssignmentError(cause instanceof Error ? cause.message : "Unable to remove this employee.");
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,10 +138,11 @@ export default function JobDetail({ job, property, client, contractors, onClose,
 
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="dialog-panel job-dialog" role="dialog" aria-modal="true" aria-labelledby="job-dialog-title">
+      <section className={`dialog-panel job-dialog ${canManage ? "" : "job-read-only"}`} role="dialog" aria-modal="true" aria-labelledby="job-dialog-title">
         <header className="dialog-header"><div><span className="eyebrow">{job.job_ref}</span><h2 id="job-dialog-title">{job.title}</h2></div><button className="icon-button" type="button" aria-label="Close job details" onClick={onClose}><X size={19} /></button></header>
         <div className="job-context"><div><MapPin size={16} /><span>{property ? `${property.address_line_1}, ${property.city} ${property.postcode}` : "Property unavailable"}</span></div><div><UserRound size={16} /><span>{client?.name || "Client unavailable"}</span></div><div><CalendarDays size={16} /><span>Logged {formatDate(job.created_at)}</span></div></div>
         <div className="job-summary-grid"><div><span>Priority</span><strong className={`priority-text priority-${job.priority}`}>{job.priority}</strong></div><div><span>Required trade</span><strong>{job.trade}</strong></div><div><span>Current status</span><strong className={`status-text status-${job.status}`}>{labelStatus(job.status)}</strong></div><div><span>Contractor</span><strong>{currentContractor?.business_name || "Unassigned"}</strong></div></div>
+        <section className="job-assignees"><div className="workforce-section-heading"><div><UserRound size={16} /><div><h3>Assigned employees</h3><p>Workforce and contractor assignments share this job record.</p></div></div></div>{employeeAssignments.length === 0 ? <p className="empty-copy">No employees assigned.</p> : <ul className="job-assignee-list">{employeeAssignments.map((assignment) => { const employee = employees.find((item) => item.id === assignment.employee_id); return <li key={assignment.id}><div><strong>{employee ? `${employee.first_name} ${employee.last_name}` : "Employee"}</strong><small>{assignment.instructions || "No additional instructions"} · {assignment.requires_supervision ? "Supervision required" : "Independent assignment"}</small></div><button className="row-action" type="button" onClick={() => void removeEmployee(assignment.id)}>Remove</button></li>; })}</ul>}{!(["completed", "cancelled"].includes(job.status)) && <form className="job-assign-form" onSubmit={addEmployee}><label>Assign employee<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} required><option value="" disabled>Select an active employee</option>{employees.filter((employee) => employee.employment_status === "active" && !employeeAssignments.some((assignment) => assignment.employee_id === employee.id)).map((employee) => <option key={employee.id} value={employee.id}>{employee.first_name} {employee.last_name} · {employee.employment_role}</option>)}</select></label><label>Job instructions<textarea name="employee_instructions" rows={2} maxLength={1200} placeholder="Specific work instructions for this employee." /></label><label className="supervision-check"><input type="checkbox" name="requires_supervision" defaultChecked />Supervisor support required</label>{assignmentError && <p className="form-message error-message" role="alert">{assignmentError}</p>}<button className="button button-subtle" type="submit" disabled={assignmentBusy || !employeeId}><Plus size={14} />{assignmentBusy ? "Assigning…" : "Assign employee"}</button></form>}</section>
         <section className="description-block"><h3>Problem description</h3><p>{job.description}</p>{job.due_date && <span className="due-date"><Clock3 size={14} /> Target {formatDate(job.due_date)}</span>}</section>
         {job.status === "completed" && <section className="completion-readout"><h3>Completion record</h3><p>{job.completion_notes}</p><div><span>Completed {job.completed_at ? formatDate(job.completed_at) : "Date not recorded"}</span><span className={`status-text status-${job.review_status}`}>Review: {labelStatus(job.review_status)}</span></div></section>}
         <div className="job-detail-columns">
