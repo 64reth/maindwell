@@ -26,7 +26,10 @@ export default function AuthScreen() {
       ? await supabase.auth.signUp({
           email,
           password,
-          options: { data: { organization_name: String(form.get("organization") || "").trim() } },
+          options: {
+            data: { organization_name: String(form.get("organization") || "").trim() },
+            emailRedirectTo: window.location.origin,
+          },
         })
       : await supabase.auth.signInWithPassword({ email, password });
 
